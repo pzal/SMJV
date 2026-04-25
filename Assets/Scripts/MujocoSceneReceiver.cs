@@ -13,6 +13,7 @@ namespace SMJV
     {
         [SerializeField] private int port = 8765;
         [SerializeField] private GameObject simScenePrefab;
+        [SerializeField] private InfoWindow infoWindow;
 
         private WebSocketServer _server;
         private readonly ConcurrentQueue<byte[]> _inbox = new();
@@ -78,6 +79,14 @@ namespace SMJV
             if (_server != null && _server.IsListening) _server.Stop();
         }
 
+        public bool TryBroadcast(byte[] payload)
+        {
+            var host = _server?.WebSocketServices?["/sim"];
+            if (host == null || host.Sessions.Count == 0) return false;
+            host.Sessions.Broadcast(payload);
+            return true;
+        }
+
         void Update()
         {
             while (_inbox.TryDequeue(out var bytes))
@@ -105,6 +114,10 @@ namespace SMJV
                     break;
                 case "clear":
                     ClearScene();
+                    break;
+                case "display":
+                    var d = MessagePackSerializer.Deserialize<DisplayPayload>(env.data);
+                    if (infoWindow != null) infoWindow.SetDisplay(d.label, d.value);
                     break;
                 default:
                     Debug.LogWarning($"[Recv] Unknown envelope type: {env.type}");
