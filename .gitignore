@@ -15,6 +15,14 @@
 /[Uu]ser[Ss]ettings/
 *.log
 
+# NuGetForUnity-managed binaries (restored from Assets/packages.config).
+/[Aa]ssets/Packages/
+/[Aa]ssets/Packages.meta
+
+# Unity Editor crash recovery (local-only).
+/[Aa]ssets/_Recovery/
+/[Aa]ssets/_Recovery.meta
+
 # By default unity supports Blender asset imports, *.blend1 blender files do not need to be commited to version control.
 *.blend1
 *.blend1.meta

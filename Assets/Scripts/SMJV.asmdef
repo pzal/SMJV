@@ -1,0 +1,17 @@
+{
+    "name": "SMJV",
+    "rootNamespace": "SMJV",
+    "references": [
+        "IntuitivoRobotsLab.IRIS-Viz.SceneLoader",
+        "IntuitivoRobotsLab.IRIS-Viz.IRISNode"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

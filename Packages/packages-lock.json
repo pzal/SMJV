@@ -1,5 +1,21 @@
 {
   "dependencies": {
+    "com.github-glitchenzo.nugetforunity": {
+      "version": "https://github.com/GlitchEnzo/NuGetForUnity.git?path=/src/NuGetForUnity",
+      "depth": 0,
+      "source": "git",
+      "dependencies": {},
+      "hash": "acc1c7bc9ea34c33b830e40316fca52553878d29"
+    },
+    "com.intuitiverobotslab.iris-viz": {
+      "version": "https://github.com/intuitive-robots/IRIS-Viz.git?path=Packages/com.intuitiverobotslab.iris-viz",
+      "depth": 0,
+      "source": "git",
+      "dependencies": {
+        "com.unity.nuget.newtonsoft-json": "3.2.1"
+      },
+      "hash": "9e5a1a703d2c6f6366cb370f8c17e8b4593496bd"
+    },
     "com.meta.xr.sdk.core": {
       "version": "201.0.0",
       "depth": 0,
@@ -78,6 +94,13 @@
     "com.unity.nuget.mono-cecil": {
       "version": "1.11.6",
       "depth": 3,
+      "source": "registry",
+      "dependencies": {},
+      "url": "https://packages.unity.com"
+    },
+    "com.unity.nuget.newtonsoft-json": {
+      "version": "3.2.1",
+      "depth": 0,
       "source": "registry",
       "dependencies": {},
       "url": "https://packages.unity.com"
