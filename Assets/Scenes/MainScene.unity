@@ -1403,6 +1403,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: SMJV::SMJV.ControllerPublisher
   rightRayInteractor: {fileID: 656994638}
+  simRoot: {fileID: 1843250967}
 --- !u!114 &946357933
 MonoBehaviour:
   m_ObjectHideFlags: 0
