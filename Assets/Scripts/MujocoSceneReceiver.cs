@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using IRIS.SceneLoader;
 using MessagePack;
 using UnityEngine;
@@ -22,6 +24,15 @@ namespace SMJV
         private SimSceneLoader _sceneLoader;
         private Dictionary<string, Transform> _objectsTrans;
         private bool _logFirstPose;
+
+        private string _addressString = "";
+        private volatile bool _connectionChanged;
+        private bool _isConnected;
+        private int _outboundInputCount;
+        private int _inboundPosesCount;
+        private float _rateWindowStart;
+        private float _lastOutboundHz;
+        private float _lastInboundHz;
 
         [MessagePackObject]
         public class Envelope
@@ -51,10 +62,12 @@ namespace SMJV
                     Debug.Log($"[Recv] Replacing prior session {otherId}");
                     Sessions.CloseSession(otherId);
                 }
+                Owner._connectionChanged = true;
             }
             protected override void OnClose(CloseEventArgs e)
             {
                 Debug.Log($"[Recv] OnClose id={ID} code={e.Code} reason='{e.Reason}' clean={e.WasClean}");
+                Owner._connectionChanged = true;
             }
             protected override void OnError(ErrorEventArgs e)
             {
@@ -72,6 +85,41 @@ namespace SMJV
             _server.AddWebSocketService<SimBridge>("/sim", b => b.Owner = this);
             _server.Start();
             Debug.Log($"MujocoSceneReceiver listening on ws://*:{port}/sim");
+
+            var ips = GetExternalIPv4Addresses();
+            var addr = ips.Count == 0 ? "<no IPv4>" : string.Join(", ", ips);
+            _addressString = $"{addr}:{port}";
+            UpdateStatusLine();
+        }
+
+        static List<string> GetExternalIPv4Addresses()
+        {
+            var result = new List<string>();
+            foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (ni.OperationalStatus != OperationalStatus.Up) continue;
+                if (ni.NetworkInterfaceType == NetworkInterfaceType.Loopback) continue;
+                foreach (var ua in ni.GetIPProperties().UnicastAddresses)
+                {
+                    if (ua.Address.AddressFamily == AddressFamily.InterNetwork)
+                        result.Add(ua.Address.ToString());
+                }
+            }
+            return result;
+        }
+
+        void UpdateStatusLine()
+        {
+            if (infoWindow == null) return;
+            if (_isConnected)
+            {
+                infoWindow.SetStatus(
+                    $"Connected. Streaming input @ {_lastOutboundHz:0} Hz; Receiving poses @ {_lastInboundHz:0} Hz");
+            }
+            else
+            {
+                infoWindow.SetStatus($"Waiting for connection at {_addressString}…");
+            }
         }
 
         void OnDestroy()
@@ -84,6 +132,7 @@ namespace SMJV
             var host = _server?.WebSocketServices?["/sim"];
             if (host == null || host.Sessions.Count == 0) return false;
             host.Sessions.Broadcast(payload);
+            _outboundInputCount++;
             return true;
         }
 
@@ -93,6 +142,37 @@ namespace SMJV
             {
                 try { Handle(bytes); }
                 catch (Exception ex) { Debug.LogError($"[Recv] dispatch failed (first {bytes.Length}B): {ex}"); }
+            }
+
+            if (_connectionChanged)
+            {
+                _connectionChanged = false;
+                var sessionCount = _server?.WebSocketServices?["/sim"]?.Sessions.Count ?? 0;
+                var nowConnected = sessionCount > 0;
+                if (nowConnected != _isConnected)
+                {
+                    _isConnected = nowConnected;
+                    _outboundInputCount = 0;
+                    _inboundPosesCount = 0;
+                    _lastOutboundHz = 0;
+                    _lastInboundHz = 0;
+                    _rateWindowStart = Time.unscaledTime;
+                    UpdateStatusLine();
+                }
+            }
+
+            if (_isConnected)
+            {
+                var elapsed = Time.unscaledTime - _rateWindowStart;
+                if (elapsed >= 1f)
+                {
+                    _lastOutboundHz = _outboundInputCount / elapsed;
+                    _lastInboundHz = _inboundPosesCount / elapsed;
+                    _outboundInputCount = 0;
+                    _inboundPosesCount = 0;
+                    _rateWindowStart = Time.unscaledTime;
+                    UpdateStatusLine();
+                }
             }
         }
 
@@ -111,6 +191,7 @@ namespace SMJV
                 case "poses":
                     var stream = MessagePackSerializer.Deserialize<StreamMessage>(env.data);
                     ApplyPoses(stream);
+                    _inboundPosesCount++;
                     break;
                 case "clear":
                     ClearScene();
