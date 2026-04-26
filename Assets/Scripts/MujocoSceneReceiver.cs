@@ -36,6 +36,12 @@ namespace SMJV
         private float _lastOutboundHz;
         private float _lastInboundHz;
 
+        // Pose timing diagnostics
+        private float _lastPoseTime = -1f;
+        private float _maxPoseGapMs;
+        private float _lastMaxPoseGapMs;
+        private float _lastMaxJitterMs;
+
         [MessagePackObject]
         public class Envelope
         {
@@ -101,7 +107,8 @@ namespace SMJV
             infoWindow.SetText(
                 $"ws://{_addressString}/sim\n" +
                 $"status: {status}\n" +
-                $"in: {_lastInboundHz:F1} Hz   out: {_lastOutboundHz:F1} Hz"
+                $"in: {_lastInboundHz:F1} Hz   out: {_lastOutboundHz:F1} Hz\n" +
+                $"max gap: {_lastMaxPoseGapMs:F0} ms  jitter: +{_lastMaxJitterMs:F0} ms"
             );
         }
 
@@ -135,8 +142,20 @@ namespace SMJV
             return true;
         }
 
+        private float _addressRefreshTime;
+
         void Update()
         {
+            if (infoWindow != null && infoWindow.IsVisible &&
+                Time.unscaledTime - _addressRefreshTime >= 1f)
+            {
+                _addressRefreshTime = Time.unscaledTime;
+                var ips = GetExternalIPv4Addresses();
+                var addr = ips.Count == 0 ? "<no IPv4>" : string.Join(", ", ips);
+                _addressString = $"{addr}:{port}";
+                UpdateInfoWindow();
+            }
+
             while (_inbox.TryDequeue(out var bytes))
             {
                 try { Handle(bytes); }
@@ -155,6 +174,9 @@ namespace SMJV
                     _inboundPosesCount = 0;
                     _lastOutboundHz = 0;
                     _lastInboundHz = 0;
+                    _lastPoseTime = -1f;
+                    _maxPoseGapMs = 0f;
+                    _lastMaxPoseGapMs = 0f;
                     _rateWindowStart = Time.unscaledTime;
                     UpdateInfoWindow();
                 }
@@ -167,9 +189,14 @@ namespace SMJV
                 {
                     _lastOutboundHz = _outboundInputCount / elapsed;
                     _lastInboundHz = _inboundPosesCount / elapsed;
+                    _lastMaxPoseGapMs = _maxPoseGapMs;
+                    var idealPeriodMs = _lastInboundHz > 0f ? 1000f / _lastInboundHz : 0f;
+                    _lastMaxJitterMs = _lastInboundHz > 0f ? _maxPoseGapMs - idealPeriodMs : 0f;
                     _outboundInputCount = 0;
                     _inboundPosesCount = 0;
+                    _maxPoseGapMs = 0f;
                     _rateWindowStart = Time.unscaledTime;
+                    Debug.Log($"[Recv] poses {_lastInboundHz:F1} Hz  max gap {_lastMaxPoseGapMs:F0} ms  jitter +{_lastMaxJitterMs:F0} ms");
                     UpdateInfoWindow();
                 }
             }
@@ -189,6 +216,13 @@ namespace SMJV
                     break;
                 case "poses":
                     var stream = MessagePackSerializer.Deserialize<StreamMessage>(env.data);
+                    var now = Time.unscaledTime;
+                    if (_lastPoseTime >= 0f)
+                    {
+                        var gapMs = (now - _lastPoseTime) * 1000f;
+                        if (gapMs > _maxPoseGapMs) _maxPoseGapMs = gapMs;
+                    }
+                    _lastPoseTime = now;
                     ApplyPoses(stream);
                     _inboundPosesCount++;
                     break;

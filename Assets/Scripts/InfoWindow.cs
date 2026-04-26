@@ -7,6 +7,7 @@ namespace SMJV
     {
         [SerializeField] private TextMeshProUGUI label;
 
+        public bool IsVisible => _visible;
         private bool _visible;
         private GameObject _panel;
 
