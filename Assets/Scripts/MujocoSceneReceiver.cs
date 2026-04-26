@@ -16,6 +16,8 @@ namespace SMJV
         [SerializeField] private int port = 8765;
         [SerializeField] private GameObject simScenePrefab;
         [SerializeField] private InfoWindow infoWindow;
+        [SerializeField] private Transform simRoot;
+        [SerializeField] private GameObject originGizmo;
 
         private WebSocketServer _server;
         private readonly ConcurrentQueue<byte[]> _inbox = new();
@@ -211,8 +213,10 @@ namespace SMJV
             var prevName = _sceneRoot != null ? _sceneRoot.name : "<null>";
             Debug.Log($"[Recv] SpawnScene name={scene.config.name} previous={prevName} objectCount={scene.objects?.Length ?? 0}");
             ClearScene();
-            _sceneRoot = Instantiate(simScenePrefab, transform);
+            var parent = simRoot != null ? simRoot : transform;
+            _sceneRoot = Instantiate(simScenePrefab, parent);
             _sceneRoot.name = scene.config.name;
+            if (originGizmo != null) originGizmo.SetActive(false);
             _sceneLoader = _sceneRoot.GetComponent<SimSceneLoader>();
             _sceneLoader.InitializeServices(scene.config.name);
 
@@ -235,6 +239,7 @@ namespace SMJV
             _sceneRoot = null;
             _sceneLoader = null;
             _objectsTrans = null;
+            if (originGizmo != null) originGizmo.SetActive(true);
         }
 
         void ApplyPoses(StreamMessage msg)
