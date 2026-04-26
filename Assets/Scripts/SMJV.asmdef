@@ -5,7 +5,9 @@
         "IntuitivoRobotsLab.IRIS-Viz.SceneLoader",
         "IntuitivoRobotsLab.IRIS-Viz.IRISNode",
         "Oculus.VR",
-        "Unity.TextMeshPro"
+        "Unity.TextMeshPro",
+        "Oculus.Interaction",
+        "Oculus.Interaction.OVR"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

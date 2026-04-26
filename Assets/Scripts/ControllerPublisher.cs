@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using MessagePack;
+using Oculus.Interaction;
 using UnityEngine;
 
 namespace SMJV
@@ -7,7 +8,9 @@ namespace SMJV
     [RequireComponent(typeof(MujocoSceneReceiver))]
     public class ControllerPublisher : MonoBehaviour
     {
-        [SerializeField] private WindowGrabber grabber;
+        [SerializeField] private WindowGrabState windowGrabState;
+        [SerializeField] private RayInteractor rightRayInteractor;
+        [SerializeField] private RecordButtonController recordButton;
 
         private MujocoSceneReceiver _receiver;
 
@@ -19,9 +22,11 @@ namespace SMJV
         void Update()
         {
             var rightHand = SampleHand(OVRInput.Controller.RTouch);
-            // While the user is grabbing the window with the right index trigger,
-            // suppress only that axis so the trigger pull doesn't propagate.
-            if (grabber != null && grabber.IsGrabbing)
+            // Suppress the right index trigger when it's being used for SDK
+            // interactions (window grab via Grabbable, or ray hovering / clicking
+            // a UI element like the Record button) so the pull doesn't propagate
+            // to Python user code.
+            if (IsRightTriggerConsumedBySdk())
                 rightHand["index_trigger"] = 0f;
 
             var payload = new Dictionary<string, object>
@@ -32,6 +37,7 @@ namespace SMJV
                 ["B"]     = OVRInput.Get(OVRInput.Button.Two, OVRInput.Controller.RTouch),
                 ["X"]     = OVRInput.Get(OVRInput.Button.One, OVRInput.Controller.LTouch),
                 ["Y"]     = OVRInput.Get(OVRInput.Button.Two, OVRInput.Controller.LTouch),
+                ["recording"] = recordButton != null && recordButton.IsRecording,
             };
 
             var data = MessagePackSerializer.Serialize(payload,
@@ -39,6 +45,17 @@ namespace SMJV
             var envelope = new MujocoSceneReceiver.Envelope { type = "input", data = data };
             var bytes = MessagePackSerializer.Serialize(envelope);
             _receiver.TryBroadcast(bytes);
+        }
+
+        private bool IsRightTriggerConsumedBySdk()
+        {
+            if (windowGrabState != null && windowGrabState.IsGrabbing) return true;
+            if (rightRayInteractor != null)
+            {
+                var s = rightRayInteractor.State;
+                if (s == InteractorState.Hover || s == InteractorState.Select) return true;
+            }
+            return false;
         }
 
         // OVRInput pose is in tracking space (Unity Y-up). We invert SimPublisher's
