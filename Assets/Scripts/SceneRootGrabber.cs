@@ -11,7 +11,9 @@ namespace SMJV
 
         public bool IsGrabbing { get; private set; }
 
-        private Transform _originalParent;
+        // Offset from controller to simRoot at grab time (in controller's yaw-only frame)
+        private Vector3 _offsetPos;
+        private float _offsetYaw;
 
         void Update()
         {
@@ -21,24 +23,35 @@ namespace SMJV
 
             if (IsGrabbing)
             {
-                if (trigger < releaseThreshold) Release();
+                if (trigger < releaseThreshold)
+                    IsGrabbing = false;
+                else
+                    ApplyGrab();
                 return;
             }
 
-            if (trigger >= grabThreshold) Grab();
+            if (trigger >= grabThreshold)
+                StartGrab();
         }
 
-        private void Grab()
+        private void StartGrab()
         {
-            _originalParent = simRoot.parent;
-            simRoot.SetParent(leftControllerAnchor, worldPositionStays: true);
+            float controllerYaw = GetYaw(leftControllerAnchor.rotation);
+            Quaternion yawOnly = Quaternion.Euler(0f, controllerYaw, 0f);
+            // Store offset in yaw-only local space so drag feels natural
+            _offsetPos = Quaternion.Inverse(yawOnly) * (simRoot.position - leftControllerAnchor.position);
+            _offsetYaw = simRoot.eulerAngles.y - controllerYaw;
             IsGrabbing = true;
         }
 
-        private void Release()
+        private void ApplyGrab()
         {
-            simRoot.SetParent(_originalParent, worldPositionStays: true);
-            IsGrabbing = false;
+            float controllerYaw = GetYaw(leftControllerAnchor.rotation);
+            Quaternion yawOnly = Quaternion.Euler(0f, controllerYaw, 0f);
+            simRoot.position = leftControllerAnchor.position + yawOnly * _offsetPos;
+            simRoot.rotation = Quaternion.Euler(0f, controllerYaw + _offsetYaw, 0f);
         }
+
+        private static float GetYaw(Quaternion q) => q.eulerAngles.y;
     }
 }

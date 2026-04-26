@@ -7,32 +7,41 @@ namespace SMJV
     {
         [SerializeField] private TextMeshProUGUI label;
 
-        private string _statusLine = "";
-        private string _payloadText = "";
+        private bool _visible;
+        private GameObject _panel;
 
-        public void SetStatus(string status)
+        void Awake()
         {
-            _statusLine = status ?? "";
-            Render();
+            // Keep this MonoBehaviour's GO active so Update() always runs,
+            // but hide the visual panel (Canvas child) instead.
+            _panel = transform.Find("Canvas")?.gameObject;
+            SetPanelVisible(false);
         }
 
-        public void SetDisplay(string labelText, string value)
+        void Update()
         {
-            _payloadText = string.IsNullOrEmpty(labelText)
-                ? (value ?? "")
-                : $"{labelText}\n{value}";
-            Render();
+            if (OVRInput.GetDown(OVRInput.Button.Start, OVRInput.Controller.LTouch))
+            {
+                _visible = !_visible;
+                SetPanelVisible(_visible);
+            }
         }
 
-        private void Render()
+        private void SetPanelVisible(bool show)
         {
-            if (label == null) return;
-            if (string.IsNullOrEmpty(_statusLine))
-                label.text = _payloadText;
-            else if (string.IsNullOrEmpty(_payloadText))
-                label.text = _statusLine;
-            else
-                label.text = $"{_statusLine}\n\n{_payloadText}";
+            if (_panel != null) _panel.SetActive(show);
+        }
+
+        public void SetText(string text)
+        {
+            if (label != null) label.text = text;
+        }
+
+        // Called from editor/debug to force visibility without the button
+        public void ForceVisible(bool show)
+        {
+            _visible = show;
+            SetPanelVisible(show);
         }
     }
 }

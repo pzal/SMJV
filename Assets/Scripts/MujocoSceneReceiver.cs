@@ -15,9 +15,9 @@ namespace SMJV
     {
         [SerializeField] private int port = 8765;
         [SerializeField] private GameObject simScenePrefab;
-        [SerializeField] private InfoWindow infoWindow;
         [SerializeField] private Transform simRoot;
         [SerializeField] private GameObject originGizmo;
+        [SerializeField] private InfoWindow infoWindow;
 
         private WebSocketServer _server;
         private readonly ConcurrentQueue<byte[]> _inbox = new();
@@ -91,7 +91,18 @@ namespace SMJV
             var ips = GetExternalIPv4Addresses();
             var addr = ips.Count == 0 ? "<no IPv4>" : string.Join(", ", ips);
             _addressString = $"{addr}:{port}";
-            UpdateStatusLine();
+            UpdateInfoWindow();
+        }
+
+        void UpdateInfoWindow()
+        {
+            if (infoWindow == null) return;
+            var status = _isConnected ? "connected" : "waiting";
+            infoWindow.SetText(
+                $"ws://{_addressString}/sim\n" +
+                $"status: {status}\n" +
+                $"in: {_lastInboundHz:F1} Hz   out: {_lastOutboundHz:F1} Hz"
+            );
         }
 
         static List<string> GetExternalIPv4Addresses()
@@ -108,20 +119,6 @@ namespace SMJV
                 }
             }
             return result;
-        }
-
-        void UpdateStatusLine()
-        {
-            if (infoWindow == null) return;
-            if (_isConnected)
-            {
-                infoWindow.SetStatus(
-                    $"Connected. Streaming input @ {_lastOutboundHz:0} Hz; Receiving poses @ {_lastInboundHz:0} Hz");
-            }
-            else
-            {
-                infoWindow.SetStatus($"Waiting for connection at {_addressString}…");
-            }
         }
 
         void OnDestroy()
@@ -159,7 +156,7 @@ namespace SMJV
                     _lastOutboundHz = 0;
                     _lastInboundHz = 0;
                     _rateWindowStart = Time.unscaledTime;
-                    UpdateStatusLine();
+                    UpdateInfoWindow();
                 }
             }
 
@@ -173,7 +170,7 @@ namespace SMJV
                     _outboundInputCount = 0;
                     _inboundPosesCount = 0;
                     _rateWindowStart = Time.unscaledTime;
-                    UpdateStatusLine();
+                    UpdateInfoWindow();
                 }
             }
         }
@@ -197,10 +194,6 @@ namespace SMJV
                     break;
                 case "clear":
                     ClearScene();
-                    break;
-                case "display":
-                    var d = MessagePackSerializer.Deserialize<DisplayPayload>(env.data);
-                    if (infoWindow != null) infoWindow.SetDisplay(d.label, d.value);
                     break;
                 default:
                     Debug.LogWarning($"[Recv] Unknown envelope type: {env.type}");
