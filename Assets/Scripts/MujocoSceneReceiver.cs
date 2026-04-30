@@ -267,6 +267,13 @@ namespace SMJV
             _sceneLoader = null;
             _objectsTrans = null;
             if (originGizmo != null) originGizmo.SetActive(true);
+
+            // IRIS-Viz creates runtime Mesh/Texture2D/Material assets in
+            // SimSceneLoader.BuildMesh / BuildTexture and SimMaterialResolver,
+            // none of which it destroys.  GC managed-only refs first so
+            // UnloadUnusedAssets sees them as unreachable.
+            System.GC.Collect();
+            Resources.UnloadUnusedAssets();
         }
 
         void ApplyPoses(StreamMessage msg)
