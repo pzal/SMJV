@@ -28,10 +28,6 @@ namespace SMJV
             {
                 ["left"]  = SampleHand(OVRInput.Controller.LTouch),
                 ["right"] = rightHand,
-                ["A"]     = OVRInput.Get(OVRInput.Button.One, OVRInput.Controller.RTouch),
-                ["B"]     = OVRInput.Get(OVRInput.Button.Two, OVRInput.Controller.RTouch),
-                ["X"]     = OVRInput.Get(OVRInput.Button.One, OVRInput.Controller.LTouch),
-                ["Y"]     = OVRInput.Get(OVRInput.Button.Two, OVRInput.Controller.LTouch),
             };
 
             var data = MessagePackSerializer.Serialize(payload,
@@ -68,7 +64,7 @@ namespace SMJV
 
             Vector2 stick = OVRInput.Get(OVRInput.Axis2D.PrimaryThumbstick, hand);
 
-            return new Dictionary<string, object>
+            var dict = new Dictionary<string, object>
             {
                 ["pos"] = new[] { p.z, -p.x, p.y },
                 ["rot"] = new[] { q.w, -q.z, q.x, -q.y },  // MuJoCo [w, x, y, z]
@@ -77,6 +73,17 @@ namespace SMJV
                 ["thumbstick"] = new[] { stick.x, stick.y },
                 ["thumbstick_click"] = OVRInput.Get(OVRInput.Button.PrimaryThumbstick, hand),
             };
+            if (hand == OVRInput.Controller.RTouch)
+            {
+                dict["a"] = OVRInput.Get(OVRInput.Button.One, hand);
+                dict["b"] = OVRInput.Get(OVRInput.Button.Two, hand);
+            }
+            else if (hand == OVRInput.Controller.LTouch)
+            {
+                dict["x"] = OVRInput.Get(OVRInput.Button.One, hand);
+                dict["y"] = OVRInput.Get(OVRInput.Button.Two, hand);
+            }
+            return dict;
         }
     }
 }
