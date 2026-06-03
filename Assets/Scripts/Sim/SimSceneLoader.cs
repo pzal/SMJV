@@ -7,6 +7,8 @@ namespace SMJV
 {
     public class SimSceneLoader : MonoBehaviour
     {
+        private const float AlphaEpsilon = 0.0001f;
+
         [SerializeField] private Material opaqueBaseMaterial;
         [SerializeField] private Material transparentBaseMaterial;
 
@@ -132,6 +134,15 @@ namespace SMJV
 
         public GameObject CreateSimVisual(SimVisual simVisual)
         {
+            if (simVisual == null || string.IsNullOrEmpty(simVisual.name))
+            {
+                return null;
+            }
+            if (IsFullyTransparent(simVisual))
+            {
+                Debug.Log($"Skipping fully transparent SimVisual {simVisual.name}.");
+                return null;
+            }
             if (_simObjTransDict.ContainsKey(simVisual.name))
             {
                 Debug.LogWarning($"SimVisualObject with name {simVisual.name} already exists, skipping creation.");
@@ -147,10 +158,9 @@ namespace SMJV
                 case "CAPSULE":  visualObj = GameObject.CreatePrimitive(PrimitiveType.Capsule); break;
                 case "SPHERE":   visualObj = GameObject.CreatePrimitive(PrimitiveType.Sphere); break;
                 case "MESH":
-                    visualObj = new GameObject(simVisual.name, typeof(MeshFilter), typeof(MeshRenderer));
                     if (simVisual.mesh == null)
                     {
-                        Debug.LogWarning($"SimVisual {simVisual.name} has no mesh data, creating an empty GameObject.");
+                        Debug.LogWarning($"SimVisual {simVisual.name} has no mesh data; skipping visual.");
                         return null;
                     }
                     Mesh mesh = ResolveMesh(simVisual.mesh, simVisual.name);
@@ -159,10 +169,11 @@ namespace SMJV
                         Debug.LogWarning($"SimVisual {simVisual.name} mesh could not be resolved.");
                         return null;
                     }
+                    visualObj = new GameObject(simVisual.name, typeof(MeshFilter), typeof(MeshRenderer));
                     visualObj.GetComponent<MeshFilter>().sharedMesh = mesh;
                     break;
                 default:
-                    Debug.LogWarning($"Unknown SimVisual type {simVisual.type}, creating an empty GameObject.");
+                    Debug.LogWarning($"Unknown SimVisual type {simVisual.type}; skipping visual.");
                     return null;
             }
 
@@ -326,27 +337,36 @@ namespace SMJV
                 ? new Material(source)
                 : new Material(Shader.Find("Universal Render Pipeline/Lit"));
 
+            Color baseColor = BaseColor(simMat);
+            ConfigureMaterialSurface(mat, baseColor.a);
+
             if (simMat == null) return mat;
 
-            if (simMat.color != null)
+            if (mat.HasProperty("_BaseColor"))
             {
-                if (simMat.color.Length == 3)
-                {
-                    simMat.color = new[] { simMat.color[0], simMat.color[1], simMat.color[2], 1f };
-                }
-                if (simMat.color.Length == 4)
-                {
-                    mat.SetColor("_BaseColor", new Color(simMat.color[0], simMat.color[1], simMat.color[2], simMat.color[3]));
-                }
+                mat.SetColor("_BaseColor", baseColor);
+            }
+            else if (mat.HasProperty("_Color"))
+            {
+                mat.SetColor("_Color", baseColor);
             }
 
             if (simMat.emissionColor != null && simMat.emissionColor.Length == 4)
             {
-                mat.SetColor("_emissionColor", new Color(simMat.emissionColor[0], simMat.emissionColor[1], simMat.emissionColor[2], simMat.emissionColor[3]));
+                Color emission = new Color(simMat.emissionColor[0], simMat.emissionColor[1], simMat.emissionColor[2], simMat.emissionColor[3]);
+                if (mat.HasProperty("_EmissionColor"))
+                {
+                    mat.SetColor("_EmissionColor", emission);
+                }
+                else if (mat.HasProperty("_emissionColor"))
+                {
+                    mat.SetColor("_emissionColor", emission);
+                }
             }
-            mat.SetFloat("_specularHighlights", simMat.specular);
-            mat.SetFloat("_Smoothness", simMat.shininess);
-            mat.SetFloat("_GlossyReflections", simMat.reflectance);
+            SetFloatIfPresent(mat, "_SpecularHighlights", simMat.specular);
+            SetFloatIfPresent(mat, "_specularHighlights", simMat.specular);
+            SetFloatIfPresent(mat, "_Smoothness", simMat.shininess);
+            SetFloatIfPresent(mat, "_GlossyReflections", simMat.reflectance);
             return mat;
         }
 
@@ -367,8 +387,82 @@ namespace SMJV
 
         private static bool IsTransparent(SimMaterial simMaterial)
         {
-            if (simMaterial?.color == null) return false;
-            return simMaterial.color.Length >= 4 && simMaterial.color[3] < 1f;
+            return MaterialAlpha(simMaterial) < 1f - AlphaEpsilon;
+        }
+
+        private bool IsFullyTransparent(SimVisual simVisual)
+        {
+            if (simVisual?.material == null) return false;
+
+            assetCache ??= new SimAssetCache();
+            SimMaterial materialDef = assetCache.ResolveMaterialDefinition(simVisual.material) ?? simVisual.material;
+            return MaterialAlpha(materialDef) <= AlphaEpsilon;
+        }
+
+        private static float MaterialAlpha(SimMaterial simMaterial)
+        {
+            if (simMaterial?.color == null || simMaterial.color.Length < 4)
+            {
+                return 1f;
+            }
+            return simMaterial.color[3];
+        }
+
+        private static Color BaseColor(SimMaterial simMaterial)
+        {
+            if (simMaterial?.color == null)
+            {
+                return Color.white;
+            }
+            if (simMaterial.color.Length >= 4)
+            {
+                return new Color(simMaterial.color[0], simMaterial.color[1], simMaterial.color[2], simMaterial.color[3]);
+            }
+            if (simMaterial.color.Length >= 3)
+            {
+                return new Color(simMaterial.color[0], simMaterial.color[1], simMaterial.color[2], 1f);
+            }
+            return Color.white;
+        }
+
+        private static void ConfigureMaterialSurface(Material mat, float alpha)
+        {
+            if (mat == null) return;
+
+            bool transparent = alpha < 1f - AlphaEpsilon;
+            if (transparent)
+            {
+                SetFloatIfPresent(mat, "_Surface", 1f);
+                SetFloatIfPresent(mat, "_Blend", 0f);
+                SetFloatIfPresent(mat, "_AlphaClip", 0f);
+                SetFloatIfPresent(mat, "_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+                SetFloatIfPresent(mat, "_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+                SetFloatIfPresent(mat, "_ZWrite", 0f);
+                mat.SetOverrideTag("RenderType", "Transparent");
+                mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+                mat.DisableKeyword("_ALPHATEST_ON");
+                mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+                return;
+            }
+
+            SetFloatIfPresent(mat, "_Surface", 0f);
+            SetFloatIfPresent(mat, "_Blend", 0f);
+            SetFloatIfPresent(mat, "_AlphaClip", 0f);
+            SetFloatIfPresent(mat, "_SrcBlend", (float)UnityEngine.Rendering.BlendMode.One);
+            SetFloatIfPresent(mat, "_DstBlend", (float)UnityEngine.Rendering.BlendMode.Zero);
+            SetFloatIfPresent(mat, "_ZWrite", 1f);
+            mat.SetOverrideTag("RenderType", "Opaque");
+            mat.DisableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            mat.DisableKeyword("_ALPHATEST_ON");
+            mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Geometry;
+        }
+
+        private static void SetFloatIfPresent(Material mat, string propertyName, float value)
+        {
+            if (mat != null && mat.HasProperty(propertyName))
+            {
+                mat.SetFloat(propertyName, value);
+            }
         }
 
         private void OnDestroy()
