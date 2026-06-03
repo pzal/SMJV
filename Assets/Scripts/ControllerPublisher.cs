@@ -10,8 +10,22 @@ namespace SMJV
     {
         [SerializeField] private RayInteractor rightRayInteractor;
         [SerializeField] private Transform simRoot;
+        [SerializeField] private InfoWindow infoWindow;
+        [SerializeField, Range(MinMul, MaxMul)] private float translationMultiplier = 1.0f;
+
+        private const float Step = 0.1f;
+        private const float MinMul = 0.1f;
+        private const float MaxMul = 10.0f;
+        private const float HighThresh = 0.6f;
+        private const float LowThresh = 0.3f;
+        private const int SettingCount = 1;
 
         private MujocoSceneReceiver _receiver;
+        private bool _stickLeftLatched, _stickRightLatched, _stickUpLatched, _stickDownLatched;
+        private int _selectedSetting;
+
+        public float TranslationMultiplier => translationMultiplier;
+        public int SelectedSetting => _selectedSetting;
 
         void Awake()
         {
@@ -20,6 +34,9 @@ namespace SMJV
 
         void Update()
         {
+            if (infoWindow != null && infoWindow.IsVisible)
+                HandleDebugStick();
+
             var rightHand = SampleHand(OVRInput.Controller.RTouch);
             if (IsRightTriggerConsumedBySdk())
                 rightHand["index_trigger"] = 0f;
@@ -47,6 +64,46 @@ namespace SMJV
             return false;
         }
 
+        private void HandleDebugStick()
+        {
+            Vector2 s = OVRInput.Get(OVRInput.Axis2D.PrimaryThumbstick, OVRInput.Controller.RTouch);
+
+            if (!_stickRightLatched && s.x > HighThresh) { _stickRightLatched = true; AdjustSelected(+Step); }
+            else if (_stickRightLatched && s.x < LowThresh) _stickRightLatched = false;
+
+            if (!_stickLeftLatched && s.x < -HighThresh) { _stickLeftLatched = true; AdjustSelected(-Step); }
+            else if (_stickLeftLatched && s.x > -LowThresh) _stickLeftLatched = false;
+
+            if (!_stickUpLatched && s.y > HighThresh) { _stickUpLatched = true; MoveCursor(-1); }
+            else if (_stickUpLatched && s.y < LowThresh) _stickUpLatched = false;
+
+            if (!_stickDownLatched && s.y < -HighThresh) { _stickDownLatched = true; MoveCursor(+1); }
+            else if (_stickDownLatched && s.y > -LowThresh) _stickDownLatched = false;
+        }
+
+        private void AdjustSelected(float delta)
+        {
+            if (_selectedSetting == 0) SetMultiplier(translationMultiplier + delta);
+        }
+
+        private void MoveCursor(int delta)
+        {
+            int next = Mathf.Clamp(_selectedSetting + delta, 0, SettingCount - 1);
+            if (next == _selectedSetting) return;
+            _selectedSetting = next;
+            _receiver?.RefreshInfoWindow();
+        }
+
+        private void SetMultiplier(float v)
+        {
+            // Snap to clean 0.1 increments so repeated bumps don't drift.
+            v = Mathf.Round(v * 10f) / 10f;
+            v = Mathf.Clamp(v, MinMul, MaxMul);
+            if (Mathf.Approximately(v, translationMultiplier)) return;
+            translationMultiplier = v;
+            _receiver?.RefreshInfoWindow();
+        }
+
         // OVRInput pose is in tracking space (Unity Y-up). We first express it in
         // simRoot's local frame so that (a) positions are relative to the placed scene
         // origin and (b) any rotation of simRoot (e.g. face-to-face orientation) is
@@ -60,9 +117,16 @@ namespace SMJV
 
             // Express in simRoot local frame (identity if simRoot not assigned).
             Vector3 p = simRoot != null ? simRoot.InverseTransformPoint(pWorld) : pWorld;
+            p *= translationMultiplier;
             Quaternion q = simRoot != null ? Quaternion.Inverse(simRoot.rotation) * qWorld : qWorld;
 
             Vector2 stick = OVRInput.Get(OVRInput.Axis2D.PrimaryThumbstick, hand);
+
+            bool suppressStick = hand == OVRInput.Controller.RTouch
+                                 && infoWindow != null && infoWindow.IsVisible;
+            Vector2 reportedStick = suppressStick ? Vector2.zero : stick;
+            bool reportedStickClick = !suppressStick &&
+                OVRInput.Get(OVRInput.Button.PrimaryThumbstick, hand);
 
             var dict = new Dictionary<string, object>
             {
@@ -70,8 +134,8 @@ namespace SMJV
                 ["rot"] = new[] { q.w, -q.z, q.x, -q.y },  // MuJoCo [w, x, y, z]
                 ["index_trigger"] = OVRInput.Get(OVRInput.Axis1D.PrimaryIndexTrigger, hand),
                 ["hand_trigger"]  = OVRInput.Get(OVRInput.Axis1D.PrimaryHandTrigger, hand),
-                ["thumbstick"] = new[] { stick.x, stick.y },
-                ["thumbstick_click"] = OVRInput.Get(OVRInput.Button.PrimaryThumbstick, hand),
+                ["thumbstick"] = new[] { reportedStick.x, reportedStick.y },
+                ["thumbstick_click"] = reportedStickClick,
             };
             if (hand == OVRInput.Controller.RTouch)
             {

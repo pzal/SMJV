@@ -21,6 +21,7 @@ namespace SMJV
 
         private WebSocketServer _server;
         private readonly ConcurrentQueue<byte[]> _inbox = new();
+        private ControllerPublisher _publisher;
 
         private GameObject _sceneRoot;
         private SimSceneLoader _sceneLoader;
@@ -93,6 +94,7 @@ namespace SMJV
 
         void Start()
         {
+            _publisher = GetComponent<ControllerPublisher>();
             _server = new WebSocketServer(System.Net.IPAddress.Any, port);
             _server.AddWebSocketService<SimBridge>("/sim", b => b.Owner = this);
             _server.Start();
@@ -104,15 +106,32 @@ namespace SMJV
             UpdateInfoWindow();
         }
 
+        public void RefreshInfoWindow() => UpdateInfoWindow();
+
         void UpdateInfoWindow()
         {
             if (infoWindow == null) return;
             var status = _isConnected ? "connected" : "waiting";
+
+            string multiplierLine;
+            if (_publisher != null)
+            {
+                string cursor = _publisher.SelectedSetting == 0 ? "> " : "  ";
+                multiplierLine = $"{cursor}translation x{_publisher.TranslationMultiplier:F1}";
+            }
+            else
+            {
+                multiplierLine = "  translation x1.0";
+            }
+
             infoWindow.SetText(
                 $"ws://{_addressString}/sim\n" +
                 $"status: {status}\n" +
                 $"in: {_lastInboundHz:F1} Hz   out: {_lastOutboundHz:F1} Hz\n" +
-                $"max gap: {_lastMaxPoseGapMs:F0} ms  jitter: +{_lastMaxJitterMs:F0} ms"
+                $"max gap: {_lastMaxPoseGapMs:F0} ms  jitter: +{_lastMaxJitterMs:F0} ms\n" +
+                $"---\n" +
+                $"{multiplierLine}\n" +
+                $"(right stick: ← → adjust, ▲▼ select)"
             );
         }
 
