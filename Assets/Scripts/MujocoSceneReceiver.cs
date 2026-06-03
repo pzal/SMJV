@@ -25,6 +25,10 @@ namespace SMJV
         private GameObject _sceneRoot;
         private SimSceneLoader _sceneLoader;
         private Dictionary<string, Transform> _objectsTrans;
+        private readonly SimAssetCache _assetCache = new();
+        private SceneManifestPayload _pendingManifest;
+        private string _pendingAssetRequestId;
+        private int _assetRequestSerial;
         private bool _logFirstPose;
 
         private string _addressString = "";
@@ -131,6 +135,7 @@ namespace SMJV
         void OnDestroy()
         {
             if (_server != null && _server.IsListening) _server.Stop();
+            _assetCache.Clear();
         }
 
         public bool TryBroadcast(byte[] payload)
@@ -214,6 +219,14 @@ namespace SMJV
                     var scene = MessagePackSerializer.Deserialize<ScenePayload>(env.data);
                     SpawnScene(scene);
                     break;
+                case "scene_manifest":
+                    var manifest = MessagePackSerializer.Deserialize<SceneManifestPayload>(env.data);
+                    HandleSceneManifest(manifest);
+                    break;
+                case "asset_response":
+                    var assetResponse = MessagePackSerializer.Deserialize<AssetResponsePayload>(env.data);
+                    HandleAssetResponse(assetResponse);
+                    break;
                 case "poses":
                     var stream = MessagePackSerializer.Deserialize<StreamMessage>(env.data);
                     var now = Time.unscaledTime;
@@ -227,7 +240,7 @@ namespace SMJV
                     _inboundPosesCount++;
                     break;
                 case "clear":
-                    ClearScene();
+                    ClearScene(clearAssets: true);
                     break;
                 default:
                     Debug.LogWarning($"[Recv] Unknown envelope type: {env.type}");
@@ -239,12 +252,13 @@ namespace SMJV
         {
             var prevName = _sceneRoot != null ? _sceneRoot.name : "<null>";
             Debug.Log($"[Recv] SpawnScene name={scene.config.name} previous={prevName} objectCount={scene.objects?.Length ?? 0}");
-            ClearScene();
+            ClearScene(clearAssets: true);
             var parent = simRoot != null ? simRoot : transform;
             _sceneRoot = Instantiate(simScenePrefab, parent);
             _sceneRoot.name = scene.config.name;
             if (originGizmo != null) originGizmo.SetActive(false);
             _sceneLoader = _sceneRoot.GetComponent<SimSceneLoader>();
+            _sceneLoader.SetAssetCache(_assetCache);
             _sceneLoader.InitializeServices(scene.config.name);
 
             foreach (var obj in scene.objects)
@@ -255,25 +269,184 @@ namespace SMJV
             _logFirstPose = true;
         }
 
-        void ClearScene()
+        void HandleSceneManifest(SceneManifestPayload scene)
         {
-            if (_sceneRoot == null) return;
-            Debug.Log($"[Recv] ClearScene name={_sceneRoot.name}");
-            // DestroyImmediate so SimSceneLoader.OnDestroy (which unregisters
-            // services on our IrisStub's LocalInfo) runs synchronously, BEFORE
-            // we instantiate the next scene with the same service names.
-            DestroyImmediate(_sceneRoot);
-            _sceneRoot = null;
-            _sceneLoader = null;
-            _objectsTrans = null;
+            if (scene == null || scene.config == null)
+            {
+                Debug.LogWarning("[Recv] scene_manifest payload missing config; ignoring.");
+                return;
+            }
+
+            _pendingManifest = null;
+            _pendingAssetRequestId = null;
+
+            SimAssetCache.AssetRefs missing = _assetCache.FindMissingAssets(scene.objects);
+            if (_assetCache.HasMissingAssets(missing))
+            {
+                RequestMissingAssets(scene, missing);
+                return;
+            }
+
+            ApplySceneManifest(scene);
+        }
+
+        void ApplySceneManifest(SceneManifestPayload scene)
+        {
+            if (_sceneRoot != null && _sceneRoot.name != scene.config.name)
+            {
+                Debug.Log($"[Recv] scene_manifest scene name changed {_sceneRoot.name} -> {scene.config.name}; recreating root.");
+                ClearScene(clearAssets: false);
+            }
+
+            if (_sceneRoot == null)
+            {
+                var parent = simRoot != null ? simRoot : transform;
+                _sceneRoot = Instantiate(simScenePrefab, parent);
+                _sceneRoot.name = scene.config.name;
+                if (originGizmo != null) originGizmo.SetActive(false);
+                _sceneLoader = _sceneRoot.GetComponent<SimSceneLoader>();
+                _sceneLoader.SetAssetCache(_assetCache);
+                _sceneLoader.InitializeServices(scene.config.name);
+            }
+            else
+            {
+                if (_sceneLoader == null)
+                {
+                    _sceneLoader = _sceneRoot.GetComponent<SimSceneLoader>();
+                }
+                _sceneLoader.SetAssetCache(_assetCache);
+            }
+
+            _sceneLoader.ReconcileScene(scene.config, scene.objects);
+            _objectsTrans = _sceneLoader.GetObjectsTrans();
+            Debug.Log(
+                $"[Recv] ReconcileScene name={scene.config.name} hash={scene.sceneHash} objects={scene.objects?.Length ?? 0} objectsTrans={_objectsTrans?.Count ?? 0}"
+            );
+            _logFirstPose = true;
+        }
+
+        void RequestMissingAssets(SceneManifestPayload scene, SimAssetCache.AssetRefs missing)
+        {
+            string requestId = (++_assetRequestSerial).ToString();
+            _pendingManifest = scene;
+            _pendingAssetRequestId = requestId;
+
+            var request = new AssetRequestPayload
+            {
+                version = 1,
+                requestId = requestId,
+                sceneHash = scene.sceneHash,
+                meshes = ToArray(missing.Meshes),
+                textures = ToArray(missing.Textures),
+                materials = ToArray(missing.Materials),
+            };
+
+            var envelope = new Envelope
+            {
+                type = "asset_request",
+                data = MessagePackSerializer.Serialize(request)
+            };
+            bool sent = TryBroadcast(MessagePackSerializer.Serialize(envelope));
+            Debug.Log(
+                $"[Recv] asset_request id={requestId} sceneHash={scene.sceneHash} meshes={request.meshes.Length} textures={request.textures.Length} materials={request.materials.Length} sent={sent}"
+            );
+
+            if (!sent)
+            {
+                Debug.LogError("[Recv] asset_request could not be sent; keeping previous scene alive.");
+                _pendingManifest = null;
+                _pendingAssetRequestId = null;
+            }
+        }
+
+        void HandleAssetResponse(AssetResponsePayload response)
+        {
+            if (_pendingManifest == null ||
+                response == null ||
+                response.requestId != _pendingAssetRequestId ||
+                response.sceneHash != _pendingManifest.sceneHash)
+            {
+                Debug.LogWarning(
+                    $"[Recv] Ignoring stale asset_response id={response?.requestId} sceneHash={response?.sceneHash}"
+                );
+                return;
+            }
+
+            if (HasMissing(response.missing))
+            {
+                Debug.LogError(
+                    $"[Recv] asset_response id={response.requestId} sceneHash={response.sceneHash} unresolved missing(mesh={Count(response.missing.meshes)}, tex={Count(response.missing.textures)}, mat={Count(response.missing.materials)}); keeping previous scene alive."
+                );
+                _pendingManifest = null;
+                _pendingAssetRequestId = null;
+                return;
+            }
+
+            _assetCache.RegisterAssets(response.assets);
+            SimAssetCache.AssetRefs stillMissing = _assetCache.FindMissingAssets(_pendingManifest.objects);
+            if (_assetCache.HasMissingAssets(stillMissing))
+            {
+                Debug.LogError(
+                    $"[Recv] asset_response id={response.requestId} did not populate all requested assets; still missing(mesh={stillMissing.Meshes.Count}, tex={stillMissing.Textures.Count}, mat={stillMissing.Materials.Count})."
+                );
+                _pendingManifest = null;
+                _pendingAssetRequestId = null;
+                return;
+            }
+
+            SceneManifestPayload readyScene = _pendingManifest;
+            _pendingManifest = null;
+            _pendingAssetRequestId = null;
+            ApplySceneManifest(readyScene);
+        }
+
+        static string[] ToArray(HashSet<string> hashes)
+        {
+            var list = new List<string>(hashes);
+            list.Sort(StringComparer.Ordinal);
+            return list.ToArray();
+        }
+
+        static bool HasMissing(AssetHashSetPayload missing)
+        {
+            return missing != null &&
+                   (Count(missing.meshes) > 0 ||
+                    Count(missing.textures) > 0 ||
+                    Count(missing.materials) > 0);
+        }
+
+        static int Count(string[] values)
+        {
+            return values?.Length ?? 0;
+        }
+
+        void ClearScene(bool clearAssets = true)
+        {
+            _pendingManifest = null;
+            _pendingAssetRequestId = null;
+            if (_sceneRoot != null)
+            {
+                Debug.Log($"[Recv] ClearScene name={_sceneRoot.name} clearAssets={clearAssets}");
+                // DestroyImmediate so SimSceneLoader.OnDestroy (which unregisters
+                // services on our IrisStub's LocalInfo) runs synchronously, BEFORE
+                // we instantiate the next scene with the same service names.
+                DestroyImmediate(_sceneRoot);
+                _sceneRoot = null;
+                _sceneLoader = null;
+                _objectsTrans = null;
+            }
             if (originGizmo != null) originGizmo.SetActive(true);
 
-            // IRIS-Viz creates runtime Mesh/Texture2D/Material assets in
-            // SimSceneLoader.BuildMesh / BuildTexture and SimMaterialResolver,
-            // none of which it destroys.  GC managed-only refs first so
-            // UnloadUnusedAssets sees them as unreachable.
-            System.GC.Collect();
-            Resources.UnloadUnusedAssets();
+            if (clearAssets)
+            {
+                _assetCache.Clear();
+                // IRIS-Viz creates runtime Mesh/Texture2D/Material assets in
+                // SimSceneLoader.BuildMesh / BuildTexture and SimMaterialResolver,
+                // none of which it destroys.  GC managed-only refs first so
+                // UnloadUnusedAssets sees them as unreachable.
+                System.GC.Collect();
+                Resources.UnloadUnusedAssets();
+            }
         }
 
         void ApplyPoses(StreamMessage msg)
