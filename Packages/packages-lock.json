@@ -8,7 +8,7 @@
         "com.unity.nuget.newtonsoft-json": "3.0.2",
         "com.unity.test-framework": "1.1.31"
       },
-      "hash": "73eb27aeccfa8e0676eaf3304136e9b85953d913"
+      "hash": "78ee5418415953b79c358bfe6355fcc3fde7912b"
     },
     "com.github-glitchenzo.nugetforunity": {
       "version": "https://github.com/GlitchEnzo/NuGetForUnity.git?path=/src/NuGetForUnity",
@@ -16,15 +16,6 @@
       "source": "git",
       "dependencies": {},
       "hash": "acc1c7bc9ea34c33b830e40316fca52553878d29"
-    },
-    "com.intuitiverobotslab.iris-viz": {
-      "version": "https://github.com/pzal/IRIS-Viz.git?path=Packages/com.intuitiverobotslab.iris-viz",
-      "depth": 0,
-      "source": "git",
-      "dependencies": {
-        "com.unity.nuget.newtonsoft-json": "3.2.1"
-      },
-      "hash": "9e5a1a703d2c6f6366cb370f8c17e8b4593496bd"
     },
     "com.meta.xr.sdk.core": {
       "version": "201.0.0",

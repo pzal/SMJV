@@ -3,7 +3,6 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
-using IRIS.SceneLoader;
 using MessagePack;
 using UnityEngine;
 using WebSocketSharp;
@@ -14,10 +13,11 @@ namespace SMJV
     public class MujocoSceneReceiver : MonoBehaviour
     {
         [SerializeField] private int port = 8765;
-        [SerializeField] private GameObject simScenePrefab;
         [SerializeField] private Transform simRoot;
         [SerializeField] private GameObject originGizmo;
         [SerializeField] private InfoWindow infoWindow;
+        [SerializeField] private Material opaqueBaseMaterial;
+        [SerializeField] private Material transparentBaseMaterial;
 
         private WebSocketServer _server;
         private readonly ConcurrentQueue<byte[]> _inbox = new();
@@ -253,13 +253,7 @@ namespace SMJV
             var prevName = _sceneRoot != null ? _sceneRoot.name : "<null>";
             Debug.Log($"[Recv] SpawnScene name={scene.config.name} previous={prevName} objectCount={scene.objects?.Length ?? 0}");
             ClearScene(clearAssets: true);
-            var parent = simRoot != null ? simRoot : transform;
-            _sceneRoot = Instantiate(simScenePrefab, parent);
-            _sceneRoot.name = scene.config.name;
-            if (originGizmo != null) originGizmo.SetActive(false);
-            _sceneLoader = _sceneRoot.GetComponent<SimSceneLoader>();
-            _sceneLoader.SetAssetCache(_assetCache);
-            _sceneLoader.InitializeServices(scene.config.name);
+            _sceneLoader = CreateSceneRoot(scene.config.name);
 
             foreach (var obj in scene.objects)
                 _sceneLoader.CreateSimObject(obj);
@@ -267,6 +261,18 @@ namespace SMJV
             _objectsTrans = _sceneLoader.GetObjectsTrans();
             Debug.Log($"[Recv] SpawnScene done: rootChildren={_sceneRoot.transform.childCount} objectsTrans={_objectsTrans?.Count ?? 0}");
             _logFirstPose = true;
+        }
+
+        SimSceneLoader CreateSceneRoot(string name)
+        {
+            var parent = simRoot != null ? simRoot : transform;
+            _sceneRoot = new GameObject(name);
+            _sceneRoot.transform.SetParent(parent, false);
+            if (originGizmo != null) originGizmo.SetActive(false);
+            var loader = _sceneRoot.AddComponent<SimSceneLoader>();
+            loader.Configure(opaqueBaseMaterial, transparentBaseMaterial);
+            loader.SetAssetCache(_assetCache);
+            return loader;
         }
 
         void HandleSceneManifest(SceneManifestPayload scene)
@@ -300,13 +306,7 @@ namespace SMJV
 
             if (_sceneRoot == null)
             {
-                var parent = simRoot != null ? simRoot : transform;
-                _sceneRoot = Instantiate(simScenePrefab, parent);
-                _sceneRoot.name = scene.config.name;
-                if (originGizmo != null) originGizmo.SetActive(false);
-                _sceneLoader = _sceneRoot.GetComponent<SimSceneLoader>();
-                _sceneLoader.SetAssetCache(_assetCache);
-                _sceneLoader.InitializeServices(scene.config.name);
+                _sceneLoader = CreateSceneRoot(scene.config.name);
             }
             else
             {
