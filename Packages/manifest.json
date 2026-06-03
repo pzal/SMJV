@@ -2,7 +2,6 @@
   "dependencies": {
     "com.coplaydev.unity-mcp": "https://github.com/CoplayDev/unity-mcp.git?path=/MCPForUnity#main",
     "com.github-glitchenzo.nugetforunity": "https://github.com/GlitchEnzo/NuGetForUnity.git?path=/src/NuGetForUnity",
-    "com.intuitiverobotslab.iris-viz": "https://github.com/intuitive-robots/IRIS-Viz.git?path=Packages/com.intuitiverobotslab.iris-viz",
     "com.meta.xr.sdk.core": "201.0.0",
     "com.meta.xr.sdk.interaction": "201.0.0",
     "com.meta.xr.sdk.interaction.ovr": "201.0.0",

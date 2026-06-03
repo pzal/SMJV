@@ -2,8 +2,6 @@
     "name": "SMJV",
     "rootNamespace": "SMJV",
     "references": [
-        "IntuitivoRobotsLab.IRIS-Viz.SceneLoader",
-        "IntuitivoRobotsLab.IRIS-Viz.IRISNode",
         "Oculus.VR",
         "Unity.TextMeshPro",
         "Oculus.Interaction",
