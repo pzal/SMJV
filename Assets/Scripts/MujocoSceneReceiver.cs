@@ -125,6 +125,7 @@ namespace SMJV
             }
 
             infoWindow.SetText(
+                $"v{Application.version}\n" +
                 $"ws://{_addressString}/sim\n" +
                 $"status: {status}\n" +
                 $"in: {_lastInboundHz:F1} Hz   out: {_lastOutboundHz:F1} Hz\n" +
